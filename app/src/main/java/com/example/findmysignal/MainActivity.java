@@ -13,7 +13,6 @@ import android.content.pm.PackageManager;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
-import android.location.LocationManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
@@ -69,13 +68,31 @@ public class MainActivity extends AppCompatActivity {
     public void setupLayout(){
 
         Button cameraButton = findViewById(R.id.button);
+        Button launchCamera = findViewById(R.id.cameraButton);
+        Button mapButton = findViewById(R.id.mapButton);
+
         final Intent cameraIntent = new Intent(this,CameraActivity.class);
+        final Intent mapsIntent = new Intent(this, MapsActivity.class);
 
         cameraButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 getCellData();
                 getLocation();            }
+        });
+
+        launchCamera.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(cameraIntent);
+            }
+        });
+
+        mapButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startActivity(mapsIntent);
+            }
         });
 
 

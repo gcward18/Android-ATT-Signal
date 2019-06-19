@@ -15,6 +15,15 @@ public class MyLocationManager{
     private Activity activity = null;
     private LocationManager mLocationManager = null;
     PermissionManager permissionManager = null;
+
+    public static Location getLocation() {
+        return location;
+    }
+
+    public static void setLocation(Location location) {
+        MyLocationManager.location = location;
+    }
+
     private static Location location = null;
 
     public MyLocationManager(Context context, Activity activity) {
