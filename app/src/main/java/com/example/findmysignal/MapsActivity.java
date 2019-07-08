@@ -1,6 +1,7 @@
 package com.example.findmysignal;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
@@ -29,20 +30,31 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.QueryDocumentSnapshot;
 import com.google.firebase.firestore.QuerySnapshot;
+import com.google.firebase.database.*;
+import com.google.firebase.firestore.SnapshotMetadata;
+import com.google.firebase.firestore.model.Document;
 import com.google.maps.android.heatmaps.HeatmapTileProvider;
 
 import java.lang.reflect.Array;
 import java.security.Provider;
+import java.sql.ResultSet;
+import java.text.DecimalFormat;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
@@ -57,11 +69,18 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     double [] listLon = new double [1000];
     MyLocationManager myLocationManager;
     int cellStrength;
+    DatabaseReference databaseReference;
+    private FusedLocationProviderClient fusedLocationProviderClient;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getLocationInfo();
+        myLocationManager = new MyLocationManager(this,this);
+        myLocationManager.startLocationReceiving();
+        userLocation = myLocationManager.getLocation();
+
         setContentView(R.layout.activity_maps);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
@@ -69,12 +88,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mapFragment.getMapAsync(this);
 
         setupDatabase();
-        getLocationInfo();
-        myLocationManager = new MyLocationManager(this,this);
-        myLocationManager.startLocationReceiving();
-        userLocation = myLocationManager.getLocation();
+
         setupMaps();
         getData();
+
     }
 
     @Override
@@ -101,21 +118,51 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public void setupDatabase(){ db = FirebaseFirestore.getInstance(); }
 
     public void getData(){
+
+        final FirebaseDatabase firebaseDatabase = FirebaseDatabase.getInstance();
+        databaseReference = FirebaseDatabase.getInstance().getReference();
+
         db.collection("newCollection").document(addressList.get(0).getCountryName()).collection(addressList.get(0).getAdminArea()).document(addressList.get(0).getSubAdminArea()).collection(addressList.get(0).getLocality()).document(addressList.get(0).getPostalCode()).collection(addressList.get(0).getThoroughfare()).get().addOnCompleteListener(new OnCompleteListener<QuerySnapshot>() {
-           @Override
-           public void onComplete(@NonNull Task<QuerySnapshot> task) {
+            @Override
+            public void onComplete(@NonNull Task<QuerySnapshot> task) {
                int i = 0;
                int currenthigh = 0;
                if(task.isSuccessful()){
+                   Map<String, Object> addedData = new HashMap<>();
                    for(QueryDocumentSnapshot documentSnapshots : task.getResult()){
                        Log.i("Success",documentSnapshots.toString());
                         Object latitude = documentSnapshots.get("Latitude");
                         Object longitude = documentSnapshots.get("Longitude");
                         Object bars = documentSnapshots.get("Bars");
-                        double lat = Double.valueOf(latitude.toString());
-                        double lon = Double.valueOf(longitude.toString());
+                        Object wifiSpeed = documentSnapshots.get("WiFi Speed");
+                        Object networkSpeed = documentSnapshots.get("Network Speed");
+                        DecimalFormat decimalFormat = new DecimalFormat("#.####");
+                        double lat = Double.valueOf(decimalFormat.format(Double.valueOf(latitude.toString())));
+                        double lon =Double.valueOf(decimalFormat.format(Double.valueOf(longitude.toString())));
                         int intBar = Integer.valueOf(bars.toString());
                         double distance = distFrom(lat,lon);
+                        int networkInt;
+                        int wifiInt;
+
+                        if(networkSpeed != null) {
+                            networkInt = Integer.valueOf(networkSpeed.toString());
+                        }
+                        else{
+                            networkInt = 0;
+                        }
+
+                        if(wifiSpeed != null) {
+                            wifiInt = Integer.valueOf(wifiSpeed.toString());
+                        }
+                        else{
+                            wifiInt = 0;
+                        }
+
+                        addedData.put("Latitude", lat);
+                        addedData.put("Longitude",lon);
+                        addedData.put("Bars",intBar);
+                        addedData.put("Network Speed", networkInt);
+                        addedData.put("WiFi Speed", wifiInt);
                         Log.i("distance", Double.toString(distance));
                         Log.i("intBar", Integer.toString(intBar));
 
@@ -123,6 +170,16 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                             currenthigh = intBar;
                             mMap.addMarker(new MarkerOptions().position(new LatLng(lat, lon)).title(Integer.toString(intBar)).snippet("Distance: " + (int) distance + "ft"));
                         }
+
+                       if(!documentSnapshots.contains(Double.toString(lat).replace('.',' ') + Double.toString(lon).replace('.', ' '))){
+                           databaseReference.child("shortPath").child(addressList.get(0).getCountryName()).child(addressList.get(0).getAdminArea()).child(addressList.get(0).getSubAdminArea()).child(addressList.get(0).getLocality()).child(addressList.get(0).getPostalCode()).child(addressList.get(0).getThoroughfare()).child(Double.toString(lat).replace('.',' ') + Double.toString(lon).replace('.', ' ')).setValue(addedData).addOnFailureListener(new OnFailureListener() {
+                            @Override
+                           public void onFailure(@NonNull Exception e) {
+                               Log.i("What Happened", e.toString());
+                           }
+                            });
+                       }
+
 
                         distances[i] = distance;
                         listLat[i] = lat;
@@ -186,15 +243,29 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
 
-        // Add a marker in Sydney and move the camera
-        LatLng latLng = new LatLng(userLocation.getLatitude(),userLocation.getLongitude());
-        CameraUpdateFactory.newLatLng(latLng);
-        CameraPosition.builder().target(latLng);
+        if(userLocation == null){
+            Log.e("USER LOCATION", "IS NULL");
+            if(checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_DENIED && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_DENIED) {
+                fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
-        CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 18);
-        mMap.animateCamera(cameraUpdate);
-        getCellData();
-        mMap.addMarker(new MarkerOptions().position(latLng).title("Current Bars: " + cellStrength).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE)));
+                fusedLocationProviderClient.getLastLocation().addOnSuccessListener(this, new OnSuccessListener<Location>() {
+                    @Override
+                    public void onSuccess(Location location) {
+                        userLocation = location;
+
+                        LatLng latLng = new LatLng(userLocation.getLatitude(),userLocation.getLongitude());
+                        CameraUpdateFactory.newLatLng(latLng);
+                        CameraPosition.builder().target(latLng);
+
+                        CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(latLng, 18);
+                        mMap.animateCamera(cameraUpdate);
+                        getCellData();
+                        mMap.addMarker(new MarkerOptions().position(latLng).title("Current Bars: " + cellStrength).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE)));
+                    }
+                });
+            }
+        }
+
         }
 
     public void getCellData(){  //Collects cellphone data and places it into the CellStrength value
@@ -214,8 +285,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private void addHeatMap(){
         List<LatLng> list = null;
 
-       // Provider mProvider;
-       // mProvider = new HeatmapTileProvider().Builder().data(list).build();
+       Provider mProvider;
+       //mProvider = new HeatmapTileProvider().Builder().data(list).build();
     }
 
     public double distFrom(double lat1, double lng1) {     //Distance from lat and lon to user
